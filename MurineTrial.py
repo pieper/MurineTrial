@@ -292,11 +292,12 @@ class MurineTrialLogic:
     """get the list of available data from the files"""
 
     species = ('mouse', 'rat')
-    subjects = range(1,16)
+    subjects = range(1,19)
     times = range(1,5)
-    methods = ("Novartis-base", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2")
+    methods = ("Novartis-base", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2", "retests", "retests-Attila")
+    retests = ("", "-1", "-2", "-3", "-4")
 
-    keys = {"species", "subjects", "times", "methods"}
+    keys = {"species", "subjects", "times", "methods", "retests"}
     materials = {}
     for key in keys:
       materials[key] = set()
@@ -305,31 +306,32 @@ class MurineTrialLogic:
       for subject in subjects:
         for time in times:
           for method in methods:
-            sampleName = "{}{}time{}".format(specie,subject,time)
-            # handle the different naming conventions
-            material = {}
-            if method == "Novartis-base":
-              material['mrPath'] = os.path.join(self.dataRoot,sampleName+".hdr")
-              material['segPath'] = os.path.join(self.dataRoot,sampleName+"_seg.hdr")
-            else:
-              material['mrPath'] = os.path.join(self.dataRoot,method,sampleName+".nrrd")
-              material['segPath'] = os.path.join(self.dataRoot,method,sampleName+"-label.nrrd")
-            # add an entry to the materials
-            if os.path.exists(material['mrPath']) and os.path.exists(material['segPath']):
-              materials['species'].add(specie)
-              materials['subjects'].add(subject)
-              materials['times'].add(time)
-              materials['methods'].add(method)
-              label = method + '-' + sampleName
-              materials[label] = material
+            for retest in retests:
+              sampleID = "{}{}time{}".format(specie,subject,time)
+              # handle the different naming conventions
+              material = {}
+              labelSuffix = ""
+              if method == "Novartis-base":
+                material['mrPath'] = os.path.join(self.dataRoot,sampleID+".hdr")
+                material['segPath'] = os.path.join(self.dataRoot,sampleID+"_seg.hdr")
+              elif method in ("retests", "retests-Attila"):
+                material['mrPath'] = os.path.join(self.dataRoot,method,sampleID+".nrrd")
+                material['segPath'] = os.path.join(self.dataRoot,method,sampleID+"-label"+retest+".nrrd")
+                labelSuffix = retest
+              else:
+                material['mrPath'] = os.path.join(self.dataRoot,method,sampleID+".nrrd")
+                material['segPath'] = os.path.join(self.dataRoot,method,sampleID+"-label.nrrd")
+              # add an entry to the materials
+              if os.path.exists(material['mrPath']) and os.path.exists(material['segPath']):
+                materials['species'].add(specie)
+                materials['subjects'].add(subject)
+                materials['times'].add(time)
+                materials['methods'].add(method)
+                materials['retests'].add(retest)
+                label = method + '.' + sampleID + labelSuffix
+                materials[label] = material
     return(materials) 
 
-
-    tests = ("", "1", "2", "3", "4")
-
-    # TODO: retests
-    for test in tests:
-      pass
 
   def endOf2013reretestStatistics(self,targetDirectory):
     """Calculate the label statistics and put them in a csv file in the target"""
