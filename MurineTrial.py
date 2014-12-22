@@ -240,7 +240,18 @@ class MurineTrialLogic:
 
   def processRetest(self):
     '''Evauate repeatability of Slicer segmentations'''
-    pass
+    methods = ("retests", "retests-Attila")
+    retests = ("", "-1", "-2", "-3", "-4")
+    sampleIDs = list(self.materials['sampleIDs'])
+    sampleIDs.sort()
+    for sampleID in sampleIDs:
+      for method in methods:
+        allTestsAvalable = True
+        for retest in retests:
+          label = method + '.' + sampleID + retest
+          allTestsAvalable = allTestsAvalable and self.materials.has_key(label)
+        if allTestsAvalable:
+          print(sampleID + " has all " + method + " retests")
 
   def loadSampleMethod(self,label):
     material = self.materials[label]
@@ -285,7 +296,7 @@ class MurineTrialLogic:
     materials = {}
     for key in keys:
       materials[key] = set()
-    
+
     for specie in species:
       for subject in subjects:
         for time in times:
@@ -299,8 +310,14 @@ class MurineTrialLogic:
                 material['mrPath'] = os.path.join(self.dataRoot,sampleID+".hdr")
                 material['segPath'] = os.path.join(self.dataRoot,sampleID+"_seg.hdr")
               elif method in ("retests", "retests-Attila"):
+                segUseMethod = method
+                if retest == "":
+                  if method == "retests":
+                    segUseMethod = "Slicer-seg-corr-Novartis"
+                  elif method == "retests-Attila":
+                    segUseMethod = "Slicer-seg-corr-2"
                 material['mrPath'] = os.path.join(self.dataRoot,method,sampleID+".nrrd")
-                material['segPath'] = os.path.join(self.dataRoot,method,sampleID+"-label"+retest+".nrrd")
+                material['segPath'] = os.path.join(self.dataRoot,segUseMethod,sampleID+"-label"+retest+".nrrd")
                 labelSuffix = retest
               else:
                 material['mrPath'] = os.path.join(self.dataRoot,method,sampleID+".nrrd")
@@ -315,7 +332,7 @@ class MurineTrialLogic:
                 materials['sampleIDs'].add(sampleID)
                 label = method + '.' + sampleID + labelSuffix
                 materials[label] = material
-    return(materials) 
+    return(materials)
 
 
   def endOf2013reretestStatistics(self,targetDirectory):
