@@ -213,6 +213,10 @@ class MurineTrialLogic:
     self.experiment = experiment
     self.methodSamples = {}
 
+    self.gigSegMethods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2")
+    self.retestMethods = ("retests", "retests-Attila")
+    self.retests = ("", "-1", "-2", "-3", "-4")
+
     if not self.dataRoot:
       self.dataRoot = "/Users/pieper/privatedata/novartis/rodents/Data Files"
 
@@ -220,48 +224,63 @@ class MurineTrialLogic:
     self.materials = self.collectMaterials()
 
   def processAll(self):
-    self.processGIGsegComparison()
-    self.processRetest()
+    for gigSegSample in self.gigSegComparisonSampleIDs():
+      self.processGIGSegSample(gigSegSample)
+      break
+    self.retestComparisonSampleIDs()
 
-  def processGIGsegComparison(self):
+  def processGIGSegSample(self,sampleID):
+    slicer.mrmlScene.Clear(0)
+    samples = {}
+    for method in self.gigSegMethods:
+      label = method + '.' + sampleID
+      samples[method] = self.loadSampleMethod(label)
+
+    ijkToRAS = vtk.vtkMatrix4x4()
+    samples['Slicer-seg']['mr'].GetIJKToRASMatrix(ijkToRAS)
+    samples['Novartis-GIGseg']['mr'].SetIJKToRASMatrix(ijkToRAS)
+    samples['Novartis-GIGseg']['seg'].SetIJKToRASMatrix(ijkToRAS)
+
+  def gigSegComparisonSampleIDs(self):
     '''Compare Novartis GIGseg segmentations to Slicer segmentations'''
-    methods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2")
     sampleIDs = list(self.materials['sampleIDs'])
     sampleIDs.sort()
+    gigSegSampleIDs = []
     for sampleID in sampleIDs:
       allMethodsAvalable = True
-      for method in methods:
+      for method in self.gigSegMethods:
         label = method + '.' + sampleID
         allMethodsAvalable = allMethodsAvalable and self.materials.has_key(label)
-      if not allMethodsAvalable:
-        print(sampleID + " does not have all methods")
+      if allMethodsAvalable:
+        gigSegSampleIDs.append(sampleID)
+    return gigSegSampleIDs
 
-    # self.methodSamples[label] = self.loadSampleMethod(label)
-
-  def processRetest(self):
+  def retestComparisonSampleIDs(self):
     '''Evauate repeatability of Slicer segmentations'''
-    methods = ("retests", "retests-Attila")
-    retests = ("", "-1", "-2", "-3", "-4")
     sampleIDs = list(self.materials['sampleIDs'])
     sampleIDs.sort()
+    retestSampleIDs = []
     for sampleID in sampleIDs:
-      for method in methods:
+      for method in self.retestMethods:
         allTestsAvalable = True
-        for retest in retests:
+        for retest in self.retests:
           label = method + '.' + sampleID + retest
           allTestsAvalable = allTestsAvalable and self.materials.has_key(label)
         if allTestsAvalable:
-          print(sampleID + " has all " + method + " retests")
+          retestSampleIDs.append(sampleID)
+    return retestSampleIDs
 
   def loadSampleMethod(self,label):
     material = self.materials[label]
     result,volumeNode = slicer.util.loadVolume(material['mrPath'], returnNode=True)
+    volumeNode.SetName(label)
     if result:
       displayNode = volumeNode.GetDisplayNode()
       displayNode.SetAutoWindowLevel(False)
       displayNode.SetWindow(29515)
       displayNode.SetLevel(13600)
     labelResult,labelVolumeNode = slicer.util.loadVolume(material['segPath'], {'labelmap': True}, returnNode=True)
+    labelVolumeNode.SetName(label+'-label')
     return {'mr': volumeNode, 'seg': labelVolumeNode}
 
 
@@ -290,7 +309,7 @@ class MurineTrialLogic:
     subjects = range(1,19)
     times = range(1,5)
     methods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2", "retests", "retests-Attila")
-    retests = ("", "-1", "-2", "-3", "-4")
+    methods = self.gigSegMethods + self.retestMethods
 
     keys = {"species", "subjects", "times", "methods", "retests", "sampleIDs"}
     materials = {}
@@ -301,7 +320,7 @@ class MurineTrialLogic:
       for subject in subjects:
         for time in times:
           for method in methods:
-            for retest in retests:
+            for retest in self.retests:
               sampleID = "{}{}time{}".format(specie,subject,time)
               # handle the different naming conventions
               material = {}
