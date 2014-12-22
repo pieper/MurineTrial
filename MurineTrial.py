@@ -134,12 +134,9 @@ class MurineTrialWidget:
 
   def onMaterialActivated(self,modelIndex):
     print('selected row %d' % modelIndex.row())
-    material = self.logic.materials[modelIndex.data()]
-
-    slicer.util.loadVolume(material['mrPath'])
-    slicer.util.loadVolume(material['segPath'], {'labelmap': True})
-
-    self.resultsView.setHtml("loaded {}".format(material) )
+    label = modelIndex.data()
+    self.logic.loadSampleMethod(label)
+    self.resultsView.setHtml(label)
 
   def onReload(self,moduleName="MurineTrial"):
     """Generic reload method for any scripted module.
@@ -200,50 +197,6 @@ class MurineTrialWidget:
       qt.QMessageBox.warning(slicer.util.mainWindow(),
           "Reload and Test", 'Exception!\n\n' + str(e) + "\n\nSee Python Console for Stack Trace")
 
-
-#
-# helper class of for measurements
-#
-class measurements(object):
-  """Store a tagged list of samples"""
-  def __init__(self):
-    self.label = "Unspecified" # a descriptive unique identifier name
-    self.subject = "Unspecified" # subject id within trial
-    self.property = "Unspecified" # the thing being measured (e.g. muscleVolumeCC or fatRatio)
-    self.timepoint = "Unspecified" # code for timepoint (e.g. Baseline, EndOfStudy)
-    self.samples = [] # list of samples of this measurement (for test/retest)
-    self.labelFiles = [] # labelmap nrrd file path
-    self.rawFiles = [] # list of lists of dicom file path
-
-    self.labels = ("Label","Subject","Property","Timepoint","Samples","LabelFiles", "RawFiles")
-
-  def __repr__(self):
-    values = (self.label, self.subject, self.property, 
-        self.timepoint, self.samples, self.labelFiles, self.rawFiles)
-    rep = ""
-    for label,value in zip(self.labels,values):
-      rep += "%s: %s, " % (label, str(value))
-    return rep[:-2]
-
-  def _subjects(self,measurementsList):
-    subjects = []
-    for m in measurementsList:
-      if m.subject not in subjects:
-        subjects.append(m.subject)
-    return(subjects)
-
-  def _toJSONFile(self,filePath):
-    import json
-    jsonMeasurement = {}
-    for at in dir(self):
-      if not at.startswith('_'):
-        jsonMeasurement[at] = getattr(self,at)
-    fp = open(filePath,"w")
-    json.dump(jsonMeasurement, fp)
-    fp.close()
-
-
-
 #
 # MurineTrialLogic
 #
@@ -258,6 +211,7 @@ class MurineTrialLogic:
   def __init__(self,dataRoot=None,experiment=None):
     self.dataRoot = dataRoot
     self.experiment = experiment
+    self.methodSamples = {}
 
     if not self.dataRoot:
       self.dataRoot = "/Users/pieper/privatedata/novartis/rodents/Data Files"
@@ -266,9 +220,39 @@ class MurineTrialLogic:
     self.materials = self.collectMaterials()
 
   def processAll(self):
-    print("TODO: processAll")
-    for material in self.materials:
-      print("processing %s" % material.label)
+    self.processGIGsegComparison()
+    self.processRetest()
+
+  def processGIGsegComparison(self):
+    '''Compare Novartis GIGseg segmentations to Slicer segmentations'''
+    methods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2")
+    sampleIDs = list(self.materials['sampleIDs'])
+    sampleIDs.sort()
+    for sampleID in sampleIDs:
+      allMethodsAvalable = True
+      for method in methods:
+        label = method + '.' + sampleID
+        allMethodsAvalable = allMethodsAvalable and self.materials.has_key(label)
+      if not allMethodsAvalable:
+        print(sampleID + " does not have all methods")
+
+    # self.methodSamples[label] = self.loadSampleMethod(label)
+
+  def processRetest(self):
+    '''Evauate repeatability of Slicer segmentations'''
+    pass
+
+  def loadSampleMethod(self,label):
+    material = self.materials[label]
+    result,volumeNode = slicer.util.loadVolume(material['mrPath'], returnNode=True)
+    if result:
+      displayNode = volumeNode.GetDisplayNode()
+      displayNode.SetAutoWindowLevel(False)
+      displayNode.SetWindow(29515)
+      displayNode.SetLevel(13600)
+    labelResult,labelVolumeNode = slicer.util.loadVolume(material['segPath'], {'labelmap': True}, returnNode=True)
+    return {'mr': volumeNode, 'seg': labelVolumeNode}
+
 
   # HACK: duplicated from testing - should be cleaned up really...
   def delayDisplay(self,message,msec=1000):
@@ -294,10 +278,10 @@ class MurineTrialLogic:
     species = ('mouse', 'rat')
     subjects = range(1,19)
     times = range(1,5)
-    methods = ("Novartis-base", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2", "retests", "retests-Attila")
+    methods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2", "retests", "retests-Attila")
     retests = ("", "-1", "-2", "-3", "-4")
 
-    keys = {"species", "subjects", "times", "methods", "retests"}
+    keys = {"species", "subjects", "times", "methods", "retests", "sampleIDs"}
     materials = {}
     for key in keys:
       materials[key] = set()
@@ -311,7 +295,7 @@ class MurineTrialLogic:
               # handle the different naming conventions
               material = {}
               labelSuffix = ""
-              if method == "Novartis-base":
+              if method == "Novartis-GIGseg":
                 material['mrPath'] = os.path.join(self.dataRoot,sampleID+".hdr")
                 material['segPath'] = os.path.join(self.dataRoot,sampleID+"_seg.hdr")
               elif method in ("retests", "retests-Attila"):
@@ -328,6 +312,7 @@ class MurineTrialLogic:
                 materials['times'].add(time)
                 materials['methods'].add(method)
                 materials['retests'].add(retest)
+                materials['sampleIDs'].add(sampleID)
                 label = method + '.' + sampleID + labelSuffix
                 materials[label] = material
     return(materials) 
