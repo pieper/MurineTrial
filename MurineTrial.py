@@ -208,10 +208,17 @@ class MurineTrialLogic:
   this class and make use of the functionality without
   requiring an instance of the Widget
   """
-  def __init__(self,dataRoot=None,experiment=None):
+  def __init__(self,dataRoot=None,resultRoot=None,experiment=None):
     self.dataRoot = dataRoot
+    self.resultRoot = resultRoot
     self.experiment = experiment
     self.methodSamples = {}
+
+    self.gigRemaps = {
+        "mouse12time1": ( (1,'right'), (3,'left') ),
+        "rat7time1":    ( (2,'right'), (6,'left') ),
+        "rat9time3":    ( (1,'right'), (3,'left') )
+        }
 
     self.gigSegMethods = ("Novartis-GIGseg", "Slicer-seg", "Slicer-seg-corr", "Slicer-seg-corr-Novartis", "Slicer-seg-corr-2")
     self.retestMethods = ("retests", "retests-Attila")
@@ -219,27 +226,97 @@ class MurineTrialLogic:
 
     if not self.dataRoot:
       self.dataRoot = "/Users/pieper/privatedata/novartis/rodents/Data Files"
+    if not self.resultRoot:
+      self.resultRoot = "/Users/pieper/privatedata/novartis/rodents/results"
+    self.retestResultFile = os.path.join(self.resultRoot, "retestSegComparison.csv")
+    self.gigResultFile = os.path.join(self.resultRoot, "gigSegComparison.csv")
 
-    print("loading data for experiment %s" % self.experiment)
     self.materials = self.collectMaterials()
 
   def processAll(self):
-    for gigSegSample in self.gigSegComparisonSampleIDs():
-      self.processGIGSegSample(gigSegSample)
-      break
-    self.retestComparisonSampleIDs()
 
-  def processGIGSegSample(self,sampleID):
+    #
+    # gigSEG comparision
+    #
+    # initialize output file
+    fp = open(self.gigResultFile, "w")
+    headers = ["sampleID","side"] + list(self.gigSegMethods)
+    h = ''
+    for header in headers:
+      h += header+', '
+    h = h[0:-2]+'\n'
+    fp.write(h)
+    fp.close()
+
+    # write a line per calf
+    for gigSegSampleID in self.gigSegComparisonSampleIDs():
+      for index,side in ( (1,'right'), (2,'left') ):
+        self.delayDisplay('processing {} {} side'.format(gigSegSampleID,side), 500)
+        self.processGIGSegSample(gigSegSampleID,index,side)
+
+    #
+    # retest comparision
+    #
+    # initialize output file
+    fp = open(self.retestResultFile, "w")
+    headers = ["sampleID","side","method"] + list(self.retests)
+    h = ''
+    for header in headers:
+      h += header+', '
+    h = h[0:-2]+'\n'
+    fp.write(h)
+    fp.close()
+
+    # write a line per calf
+    for retestSampleID in self.retestComparisonSampleIDs():
+      for index,side in ( (1,'right'), (2,'left') ):
+        for method in self.retestMethods:
+          self.delayDisplay('processing {} {} side {}'.format(retestSampleID,side,method), 500)
+          self.processRetestSample(retestSampleID,index,side,method)
+
+  def processGIGSegSample(self,sampleID,index,side):
     slicer.mrmlScene.Clear(0)
     samples = {}
+    row = sampleID + ", " + side + ", "
     for method in self.gigSegMethods:
+      indexToUse = index
+      if method == 'Novartis-GIGseg' and self.gigRemaps.has_key(sampleID):
+        indexToUse = self.gigRemaps[sampleID][index-1][0]
       label = method + '.' + sampleID
       samples[method] = self.loadSampleMethod(label)
+      pixelVolumeMM = numpy.array(samples[method]['seg'].GetSpacing()).prod()
+      a = slicer.util.array(samples[method]['seg'].GetID())
+      a[a != indexToUse] = 0
+      a[a == indexToUse] = 1
+      volume = pixelVolumeMM * a.sum()
+      row += str(volume)+", "
+    row = row[0:-2]+"\n"
+    fp = open(self.gigResultFile, "a")
+    fp.write(row)
+    fp.close()
 
     ijkToRAS = vtk.vtkMatrix4x4()
     samples['Slicer-seg']['mr'].GetIJKToRASMatrix(ijkToRAS)
     samples['Novartis-GIGseg']['mr'].SetIJKToRASMatrix(ijkToRAS)
     samples['Novartis-GIGseg']['seg'].SetIJKToRASMatrix(ijkToRAS)
+
+  def processRetestSample(self,sampleID,index,side,method):
+    slicer.mrmlScene.Clear(0)
+    samples = {}
+    row = sampleID + ", " + side + ", " + method + ", "
+    for retest in self.retests:
+      label = method + '.' + sampleID + retest
+      samples[retest] = self.loadSampleMethod(label)
+      pixelVolumeMM = numpy.array(samples[retest]['seg'].GetSpacing()).prod()
+      a = slicer.util.array(samples[retest]['seg'].GetID())
+      a[a != index] = 0
+      a[a == index] = 1
+      volume = pixelVolumeMM * a.sum()
+      row += str(volume)+", "
+    row = row[0:-2]+"\n"
+    fp = open(self.retestResultFile, "a")
+    fp.write(row)
+    fp.close()
 
   def gigSegComparisonSampleIDs(self):
     '''Compare Novartis GIGseg segmentations to Slicer segmentations'''
