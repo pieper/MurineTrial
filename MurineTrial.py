@@ -94,19 +94,46 @@ class MurineTrialWidget:
     # Layout within the measurements collapsible button
     measurementsFormLayout = qt.QFormLayout(measurementsCollapsibleButton)
 
-    # list of measurements in the trial
-    self.scrollArea = qt.QScrollArea()
-    measurementsFormLayout.addWidget(self.scrollArea)
-    self.listWidget = qt.QListWidget()
-    self.scrollArea.setWidget(self.listWidget)
-    self.scrollArea.setWidgetResizable(True)
-    self.listWidget.setProperty('SH_ItemView_ActivateItemOnSingleClick', 1)
-    self.listWidget.connect('activated(QModelIndex)', self.onMaterialActivated)
+    # list of materials in the trial
+    measurementsFormLayout.addWidget(qt.QLabel("Individual Segmentations"))
+    self.materialsScrollArea = qt.QScrollArea()
+    measurementsFormLayout.addWidget(self.materialsScrollArea)
+    self.materialsListWidget = qt.QListWidget()
+    self.materialsScrollArea.setWidget(self.materialsListWidget)
+    self.materialsScrollArea.setWidgetResizable(True)
+    self.materialsListWidget.setProperty('SH_ItemView_ActivateItemOnSingleClick', 1)
+    self.materialsListWidget.connect('activated(QModelIndex)', self.onMaterialActivated)
     # populate it
     materialKeys = self.logic.materials.keys()
     materialKeys.sort()
     for materialKey in materialKeys:
-      self.listWidget.addItem(materialKey)
+      self.materialsListWidget.addItem(materialKey)
+
+    # list of sampleIDs in the trial
+    measurementsFormLayout.addWidget(qt.QLabel("Segmentation Comparisions"))
+    self.sampleIDsScrollArea = qt.QScrollArea()
+    measurementsFormLayout.addWidget(self.sampleIDsScrollArea)
+    self.sampleIDsListWidget = qt.QListWidget()
+    self.sampleIDsScrollArea.setWidget(self.sampleIDsListWidget)
+    self.sampleIDsScrollArea.setWidgetResizable(True)
+    self.sampleIDsListWidget.setProperty('SH_ItemView_ActivateItemOnSingleClick', 1)
+    self.sampleIDsListWidget.connect('activated(QModelIndex)', self.onSampleIDActivated)
+    # populate it
+    for sampleID in self.logic.gigSegComparisonSampleIDs():
+      self.sampleIDsListWidget.addItem(sampleID)
+
+    # list of retestIDs in the trial
+    measurementsFormLayout.addWidget(qt.QLabel("Repeatability Tests"))
+    self.retestIDsScrollArea = qt.QScrollArea()
+    measurementsFormLayout.addWidget(self.retestIDsScrollArea)
+    self.retestIDsListWidget = qt.QListWidget()
+    self.retestIDsScrollArea.setWidget(self.retestIDsListWidget)
+    self.retestIDsScrollArea.setWidgetResizable(True)
+    self.retestIDsListWidget.setProperty('SH_ItemView_ActivateItemOnSingleClick', 1)
+    self.retestIDsListWidget.connect('activated(QModelIndex)', self.onRetestActivated)
+    # populate it
+    for retestID in self.logic.retestComparisonSampleIDs():
+      self.retestIDsListWidget.addItem(retestID)
 
     # process all  button
     processAllButton = qt.QPushButton("Process All")
@@ -137,6 +164,19 @@ class MurineTrialWidget:
     label = modelIndex.data()
     self.logic.loadSampleMethod(label)
     self.resultsView.setHtml(label)
+
+  def onSampleIDActivated(self,modelIndex):
+    print('selected row %d' % modelIndex.row())
+    sampleID = modelIndex.data()
+    self.logic.loadGIGSegSample(sampleID)
+    self.resultsView.setHtml(sampleID)
+
+  def onRetestActivated(self,modelIndex):
+    print('selected row %d' % modelIndex.row())
+    sampleID = modelIndex.data()
+    self.logic.loadRetestSample(sampleID)
+    self.resultsView.setHtml(sampleID)
+
 
   def onReload(self,moduleName="MurineTrial"):
     """Generic reload method for any scripted module.
@@ -274,7 +314,18 @@ class MurineTrialLogic:
           self.delayDisplay('processing {} {} side {}'.format(retestSampleID,side,method), 500)
           self.processRetestSample(retestSampleID,index,side,method)
 
-  def processGIGSegSample(self,sampleID,index,side):
+  def loadGIGSegSample(self,sampleID):
+    samples = {}
+    for method in self.gigSegMethods:
+      label = method + '.' + sampleID
+      samples[method] = self.loadSampleMethod(label)
+    ijkToRAS = vtk.vtkMatrix4x4()
+    samples['Slicer-seg']['mr'].GetIJKToRASMatrix(ijkToRAS)
+    samples['Novartis-GIGseg']['mr'].SetIJKToRASMatrix(ijkToRAS)
+    samples['Novartis-GIGseg']['seg'].SetIJKToRASMatrix(ijkToRAS)
+    return samples
+
+  def processGIGSegSample(self,sampleID,index,side,appendCSV=True):
     slicer.mrmlScene.Clear(0)
     samples = {}
     row = sampleID + ", " + side + ", "
@@ -295,10 +346,13 @@ class MurineTrialLogic:
     fp.write(row)
     fp.close()
 
-    ijkToRAS = vtk.vtkMatrix4x4()
-    samples['Slicer-seg']['mr'].GetIJKToRASMatrix(ijkToRAS)
-    samples['Novartis-GIGseg']['mr'].SetIJKToRASMatrix(ijkToRAS)
-    samples['Novartis-GIGseg']['seg'].SetIJKToRASMatrix(ijkToRAS)
+  def loadRetestSample(self,sampleID):
+    samples = {}
+    for method in self.retestMethods:
+      for retest in self.retests:
+        label = method + '.' + sampleID + retest
+        samples[retest] = self.loadSampleMethod(label)
+    return samples
 
   def processRetestSample(self,sampleID,index,side,method):
     slicer.mrmlScene.Clear(0)
